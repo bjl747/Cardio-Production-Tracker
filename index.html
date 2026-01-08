@@ -229,6 +229,7 @@
           const [pop, setPop] = useState(1);
           const [loading, setLoading] = useState(false);
           const [type, setType] = useState('add');
+          const [subType, setSubType] = useState('placement'); // 'placement' or 'extension'
           const [selectedTxId, setSelectedTxId] = useState('');
 
           useEffect(() => {
@@ -239,9 +240,11 @@
               setWeeksBooked('13');
               setPop(1);
               setSelectedTxId('');
+              setSubType('placement'); // Default back to placement on new add
             }
           }, [type]);
 
+          // Handle Subtract Transaction Selection
           useEffect(() => {
             if (type === 'subtract' && selectedTxId) {
               const tx = recruiterTransactions.find(t => t.id === selectedTxId);
@@ -267,6 +270,12 @@
             }
           }, [selectedTxId, type, recruiterTransactions]);
 
+          // Get unique travelers for Extension dropdown
+          const uniqueTravelers = useMemo(() => {
+              const names = recruiterTransactions.map(t => t.travelerName);
+              return [...new Set(names)].sort();
+          }, [recruiterTransactions]);
+
           const handleSubmit = async (e) => {
             e.preventDefault();
             if (!traveler || !startDate || !margin) return;
@@ -288,6 +297,7 @@
                 periodName: currentPeriod.name,
                 timestamp: Timestamp.now(),
                 type: type,
+                isExtension: subType === 'extension' && type === 'add',
                 originalTransactionId: selectedTxId || null
               });
               onClose();
@@ -328,9 +338,37 @@
                     </button>
                   </div>
 
+                  {/* New Placement vs Extension Toggle (Only for Add) */}
+                  {type === 'add' && (
+                      <div className="flex gap-4 text-sm mb-2">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                              <input 
+                                  type="radio" 
+                                  name="subType" 
+                                  checked={subType === 'placement'} 
+                                  onChange={() => setSubType('placement')}
+                                  className="accent-blue-500"
+                              />
+                              <span style={{ color: subType === 'placement' ? COLORS.primaryBlue : COLORS.textSecondary }}>New Placement</span>
+                          </label>
+                          <label className="flex items-center gap-2 cursor-pointer">
+                              <input 
+                                  type="radio" 
+                                  name="subType" 
+                                  checked={subType === 'extension'} 
+                                  onChange={() => setSubType('extension')}
+                                  className="accent-blue-500"
+                              />
+                              <span style={{ color: subType === 'extension' ? COLORS.primaryBlue : COLORS.textSecondary }}>Extension</span>
+                          </label>
+                      </div>
+                  )}
+
                   <div className="grid grid-cols-2 gap-4">
                     <div className="col-span-2">
                       <label className="block text-xs font-semibold uppercase mb-1" style={{ color: COLORS.textSecondary }}>Traveler Name</label>
+                      
+                      {/* Logic for Traveler Input Display */}
                       {type === 'subtract' ? (
                          <select
                            required
@@ -347,15 +385,30 @@
                             ))}
                          </select>
                       ) : (
-                        <input 
-                          required 
-                          type="text" 
-                          className="w-full p-2 border rounded focus:ring-2 outline-none"
-                          style={{ backgroundColor: COLORS.background, color: COLORS.textPrimary, borderColor: COLORS.border, '--tw-ring-color': COLORS.primaryBlue }}
-                          placeholder="John Doe"
-                          value={traveler}
-                          onChange={e => setTraveler(e.target.value)}
-                        />
+                        subType === 'extension' ? (
+                            <select
+                                required
+                                className="w-full p-2 border rounded focus:ring-2 outline-none"
+                                style={{ backgroundColor: COLORS.background, color: COLORS.textPrimary, borderColor: COLORS.border }}
+                                value={traveler}
+                                onChange={e => setTraveler(e.target.value)}
+                            >
+                                <option value="">Select existing traveler...</option>
+                                {uniqueTravelers.map(name => (
+                                    <option key={name} value={name}>{name}</option>
+                                ))}
+                            </select>
+                        ) : (
+                            <input 
+                              required 
+                              type="text" 
+                              className="w-full p-2 border rounded focus:ring-2 outline-none"
+                              style={{ backgroundColor: COLORS.background, color: COLORS.textPrimary, borderColor: COLORS.border, '--tw-ring-color': COLORS.primaryBlue }}
+                              placeholder="John Doe"
+                              value={traveler}
+                              onChange={e => setTraveler(e.target.value)}
+                            />
+                        )
                       )}
                     </div>
                   </div>
