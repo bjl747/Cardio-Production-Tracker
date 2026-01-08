@@ -1,0 +1,1510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prime Time Cardio Tracker</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React & ReactDOM (Pinned Versions) -->
+    <script crossorigin src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+    
+    <!-- Prop Types (Required for some UMD builds) -->
+    <script crossorigin src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
+    
+    <!-- Recharts (Pinned Version for Stability) -->
+    <script crossorigin src="https://unpkg.com/recharts@2.10.3/umd/Recharts.js"></script>
+    
+    <!-- Babel (for JSX) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        /* Custom Scrollbar for Tables */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #1e293b; 
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #475569; 
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #64748b; 
+        }
+        
+        /* Date Input Dark Mode Fix */
+        .dark-date-input::-webkit-calendar-picker-indicator {
+            filter: invert(1);
+        }
+        
+        body {
+            background-color: #101623;
+            color: #F3F4F6;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { 
+            getFirestore, collection, addDoc, onSnapshot, query, orderBy, 
+            doc, updateDoc, deleteDoc, setDoc, where, getDocs, Timestamp 
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { 
+            getAuth, signInAnonymously, onAuthStateChanged 
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+
+        // Access global libraries
+        const { useState, useEffect, useMemo } = React;
+        const { 
+            BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip: RechartsTooltip, 
+            Legend, ResponsiveContainer, Cell, LineChart, Line, ComposedChart 
+        } = Recharts;
+
+        // --- ICONS (Lucide Replacements) ---
+        const Icon = ({ path, className, style }) => (
+            <svg 
+                xmlns="http://www.w3.org/2000/svg" 
+                width="24" height="24" 
+                viewBox="0 0 24 24" 
+                fill="none" 
+                stroke="currentColor" 
+                strokeWidth="2" 
+                strokeLinecap="round" 
+                strokeLinejoin="round" 
+                className={className}
+                style={style}
+            >
+                {path}
+            </svg>
+        );
+
+        const Plus = (props) => <Icon {...props} path={<><path d="M5 12h14"/><path d="M12 5v14"/></>} />;
+        const Minus = (props) => <Icon {...props} path={<path d="M5 12h14"/>} />;
+        const XIcon = (props) => <Icon {...props} path={<><path d="M18 6 6 18"/><path d="m6 6 12 12"/></>} />;
+        const Users = (props) => <Icon {...props} path={<><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></>} />;
+        const Calendar = (props) => <Icon {...props} path={<><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></>} />;
+        const LayoutDashboard = (props) => <Icon {...props} path={<><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></>} />;
+        const LogOut = (props) => <Icon {...props} path={<><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></>} />;
+        const ShieldCheck = (props) => <Icon {...props} path={<><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></>} />;
+        const TrendingUp = (props) => <Icon {...props} path={<><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></>} />;
+        const History = (props) => <Icon {...props} path={<><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 12"/><path d="M3 3v9h9"/><path d="M12 7v5l4 2"/></>} />;
+        const Clock = (props) => <Icon {...props} path={<><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></>} />;
+        const Pencil = (props) => <Icon {...props} path={<><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></>} />;
+        const Save = (props) => <Icon {...props} path={<><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></>} />;
+        const Briefcase = (props) => <Icon {...props} path={<><rect width="20" height="14" x="2" y="7" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></>} />;
+        const ChevronDown = (props) => <Icon {...props} path={<path d="m6 9 6 6 6-6"/>} />;
+        const BarChart2 = (props) => <Icon {...props} path={<><line x1="18" x2="18" y1="20" y2="10"/><line x1="12" x2="12" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="14"/></>} />;
+        const Download = (props) => <Icon {...props} path={<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></>} />;
+        const FileText = (props) => <Icon {...props} path={<><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" x2="8" y1="13" y2="13"/><line x1="16" x2="8" y1="17" y2="17"/><line x1="10" x2="8" y1="9" y2="9"/></>} />;
+        const Trophy = (props) => <Icon {...props} path={<><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17"/><path d="M14 14.66V17"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></>} />;
+
+        // --- FIREBASE CONFIG (USER PROVIDED) ---
+        const firebaseConfig = {
+          apiKey: "AIzaSyBQG0z_gZL18Zq5m7OPFhjt-f7HbCUEx3A",
+          authDomain: "production-report-b40fc.firebaseapp.com",
+          projectId: "production-report-b40fc",
+          storageBucket: "production-report-b40fc.firebasestorage.app",
+          messagingSenderId: "198415885309",
+          appId: "1:198415885309:web:dd8d77884b5deed3432f94"
+        };
+        
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = "production_tracker_v1"; // Custom ID for organizing data
+
+        // --- COLORS ---
+        const COLORS = {
+          background: '#101623',   
+          card: '#1A2332',         
+          textPrimary: '#F3F4F6',  
+          textSecondary: '#94A3B8',
+          primaryBlue: '#38bdf8',  
+          brandBlue: '#005580',    
+          success: '#10B981',      
+          warning: '#f97316',      
+          highlight: '#facc15',    
+          danger: '#ef4444',       
+          border: '#2D3748',       
+          barBackground: '#334155', 
+          inputBg: '#0f172a'       
+        };
+
+        // --- PERIOD CONFIG (2026) ---
+        const PERIOD_CONFIG = [
+          { id: 1, name: "Period 1", start: "2025-12-28", end: "2026-01-24" },
+          { id: 2, name: "Period 2", start: "2026-01-25", end: "2026-02-21" },
+          { id: 3, name: "Period 3", start: "2026-02-22", end: "2026-03-28" },
+          { id: 4, name: "Period 4", start: "2026-03-29", end: "2026-04-25" },
+          { id: 5, name: "Period 5", start: "2026-04-26", end: "2026-05-23" },
+          { id: 6, name: "Period 6", start: "2026-05-24", end: "2026-06-27" },
+          { id: 7, name: "Period 7", start: "2026-06-28", end: "2026-07-25" },
+          { id: 8, name: "Period 8", start: "2026-07-26", end: "2026-08-22" },
+          { id: 9, name: "Period 9", start: "2026-08-23", end: "2026-09-26" },
+          { id: 10, name: "Period 10", start: "2026-09-27", end: "2026-10-24" },
+          { id: 11, name: "Period 11", start: "2026-10-25", end: "2026-11-21" },
+          { id: 12, name: "Period 12", start: "2026-11-22", end: "2026-12-26" },
+        ];
+
+        const getCurrentPeriod = () => {
+          const today = new Date().toISOString().split('T')[0];
+          const period = PERIOD_CONFIG.find(p => today >= p.start && today <= p.end);
+          return period || PERIOD_CONFIG[0]; 
+        };
+
+        const getPeriodForDate = (dateString) => {
+          const date = dateString;
+          const found = PERIOD_CONFIG.find(p => date >= p.start && date <= p.end);
+          return found || { id: 'historical', name: 'Historical/Other' };
+        };
+
+        // --- COMPONENTS ---
+
+        const AdminLogin = ({ onLogin }) => {
+          const [password, setPassword] = useState('');
+          const [error, setError] = useState('');
+
+          const handleLogin = (e) => {
+            e.preventDefault();
+            if (password === '#747Tatum$') {
+              onLogin();
+            } else {
+              setError('Incorrect Password');
+            }
+          };
+
+          return (
+            <div className="flex items-center justify-center min-h-screen" style={{ backgroundColor: COLORS.background }}>
+              <div className="p-8 rounded-xl shadow-2xl w-full max-w-md border-t-4" style={{ backgroundColor: COLORS.card, borderColor: COLORS.primaryBlue }}>
+                <div className="flex justify-center mb-6">
+                  <ShieldCheck className="w-12 h-12" style={{ color: COLORS.primaryBlue }} />
+                </div>
+                <h2 className="text-2xl font-bold text-center mb-2" style={{ color: COLORS.textPrimary }}>Admin Access</h2>
+                <p className="text-center mb-6" style={{ color: COLORS.textSecondary }}>Cardio Division Admin Portal</p>
+                <form onSubmit={handleLogin}>
+                  <input
+                    type="password"
+                    placeholder="Enter Password"
+                    className="w-full p-3 border rounded-lg mb-4 focus:ring-2 outline-none transition-colors"
+                    style={{ 
+                      backgroundColor: COLORS.background, 
+                      color: COLORS.textPrimary, 
+                      borderColor: COLORS.border,
+                      boxShadow: 'none'
+                    }}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                  />
+                  {error && <p className="text-red-500 text-sm mb-4 text-center">{error}</p>}
+                  <button 
+                    type="submit" 
+                    className="w-full text-white p-3 rounded-lg hover:opacity-90 transition font-semibold"
+                    style={{ backgroundColor: COLORS.brandBlue }}
+                  >
+                    Access Dashboard
+                  </button>
+                </form>
+                <button onClick={() => onLogin(false)} className="w-full mt-4 text-sm hover:underline" style={{ color: COLORS.textSecondary }}>
+                  Return to Recruiter View
+                </button>
+              </div>
+            </div>
+          );
+        };
+
+        const AddPopModal = ({ recruiter, onClose, currentPeriod, recruiterTransactions }) => {
+          const [traveler, setTraveler] = useState('');
+          const [startDate, setStartDate] = useState('');
+          const [margin, setMargin] = useState('');
+          const [weeksBooked, setWeeksBooked] = useState('13'); 
+          const [pop, setPop] = useState(1);
+          const [loading, setLoading] = useState(false);
+          const [type, setType] = useState('add');
+          const [selectedTxId, setSelectedTxId] = useState('');
+
+          useEffect(() => {
+            if (type === 'add') {
+              setTraveler('');
+              setStartDate('');
+              setMargin('');
+              setWeeksBooked('13');
+              setPop(1);
+              setSelectedTxId('');
+            }
+          }, [type]);
+
+          useEffect(() => {
+            if (type === 'subtract' && selectedTxId) {
+              const tx = recruiterTransactions.find(t => t.id === selectedTxId);
+              if (tx) {
+                setTraveler(tx.travelerName);
+                setStartDate(tx.startDate);
+                setMargin(tx.marginDollars);
+                setPop(Math.abs(tx.popValue));
+                
+                const start = new Date(tx.startDate);
+                const today = new Date();
+                const totalWeeks = Number(tx.weeksBooked) || 13;
+
+                if (start > today) {
+                   setWeeksBooked(totalWeeks);
+                } else {
+                   const diffTime = Math.abs(today - start);
+                   const diffWeeks = diffTime / (1000 * 60 * 60 * 24 * 7);
+                   const remaining = Math.max(0, Math.round(totalWeeks - diffWeeks));
+                   setWeeksBooked(remaining);
+                }
+              }
+            }
+          }, [selectedTxId, type, recruiterTransactions]);
+
+          const handleSubmit = async (e) => {
+            e.preventDefault();
+            if (!traveler || !startDate || !margin) return;
+            setLoading(true);
+
+            try {
+              const finalPop = type === 'add' ? Number(pop) : -Number(pop);
+              const finalWeeks = type === 'add' ? Number(weeksBooked) : -Number(weeksBooked);
+
+              await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'transactions'), {
+                recruiterId: recruiter.id,
+                recruiterName: recruiter.name,
+                travelerName: traveler,
+                startDate: startDate,
+                marginDollars: Number(margin),
+                weeksBooked: finalWeeks,
+                popValue: finalPop,
+                periodId: currentPeriod.id,
+                periodName: currentPeriod.name,
+                timestamp: Timestamp.now(),
+                type: type,
+                originalTransactionId: selectedTxId || null
+              });
+              onClose();
+            } catch (err) {
+              console.error("Error adding POP:", err);
+              alert("Failed to save data. Please try again.");
+            } finally {
+              setLoading(false);
+            }
+          };
+
+          return (
+            <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+              <div className="rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200" style={{ backgroundColor: COLORS.card }}>
+                <div className="p-4 flex justify-between items-center text-white" style={{ backgroundColor: COLORS.brandBlue }}>
+                  <h3 className="font-bold text-lg flex items-center gap-2">
+                    <TrendingUp className="w-5 h-5" />
+                    Update Production: {recruiter.name}
+                  </h3>
+                  <button onClick={onClose} className="hover:bg-white/20 p-1 rounded-full"><XIcon className="w-5 h-5" /></button>
+                </div>
+                
+                <form onSubmit={handleSubmit} className="p-6 space-y-4">
+                  <div className="flex gap-2 mb-4 p-1 rounded-lg" style={{ backgroundColor: COLORS.background }}>
+                    <button
+                      type="button"
+                      onClick={() => setType('add')}
+                      className={`flex-1 py-2 rounded-md text-sm font-semibold transition ${type === 'add' ? 'bg-[#10B981] text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
+                    >
+                      Add Production (+)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setType('subtract')}
+                      className={`flex-1 py-2 rounded-md text-sm font-semibold transition ${type === 'subtract' ? 'bg-[#ef4444] text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
+                    >
+                      Remove Production (-)
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="col-span-2">
+                      <label className="block text-xs font-semibold uppercase mb-1" style={{ color: COLORS.textSecondary }}>Traveler Name</label>
+                      {type === 'subtract' ? (
+                         <select
+                           required
+                           className="w-full p-2 border rounded focus:ring-2 outline-none"
+                           style={{ backgroundColor: COLORS.background, color: COLORS.textPrimary, borderColor: COLORS.border }}
+                           value={selectedTxId}
+                           onChange={e => setSelectedTxId(e.target.value)}
+                         >
+                            <option value="">Select a placement to remove...</option>
+                            {recruiterTransactions.map(tx => (
+                              <option key={tx.id} value={tx.id}>
+                                {tx.travelerName} ({tx.startDate}) - {tx.weeksBooked}wks
+                              </option>
+                            ))}
+                         </select>
+                      ) : (
+                        <input 
+                          required 
+                          type="text" 
+                          className="w-full p-2 border rounded focus:ring-2 outline-none"
+                          style={{ backgroundColor: COLORS.background, color: COLORS.textPrimary, borderColor: COLORS.border, '--tw-ring-color': COLORS.primaryBlue }}
+                          placeholder="John Doe"
+                          value={traveler}
+                          onChange={e => setTraveler(e.target.value)}
+                        />
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                     <div>
+                      <label className="block text-xs font-semibold uppercase mb-1" style={{ color: COLORS.textSecondary }}>Start Date</label>
+                      <input 
+                        required 
+                        type="date" 
+                        className="w-full p-2 border rounded focus:ring-2 outline-none dark-date-input"
+                        style={{ backgroundColor: COLORS.background, color: COLORS.textPrimary, borderColor: COLORS.border }}
+                        value={startDate}
+                        onChange={e => setStartDate(e.target.value)}
+                        readOnly={type === 'subtract'} 
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold uppercase mb-1" style={{ color: COLORS.textSecondary }}>Weekly Margin ($)</label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-2" style={{ color: COLORS.textSecondary }}>$</span>
+                        <input 
+                          required 
+                          type="number" 
+                          className="w-full pl-6 p-2 border rounded focus:ring-2 outline-none"
+                          style={{ backgroundColor: COLORS.background, color: COLORS.textPrimary, borderColor: COLORS.border }}
+                          placeholder="0.00"
+                          value={margin}
+                          onChange={e => setMargin(e.target.value)}
+                          readOnly={type === 'subtract'} 
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                     <div>
+                      <label className="block text-xs font-semibold uppercase mb-1" style={{ color: COLORS.textSecondary }}>
+                         {type === 'subtract' ? 'Remaining Weeks' : 'Contract Weeks'}
+                      </label>
+                      <div className="relative">
+                        <Clock className="absolute left-3 top-2.5 w-4 h-4" style={{ color: COLORS.textSecondary }} />
+                        <input 
+                          required 
+                          type="number" 
+                          className="w-full pl-9 p-2 border rounded focus:ring-2 outline-none"
+                          style={{ backgroundColor: COLORS.background, color: COLORS.textPrimary, borderColor: COLORS.border }}
+                          value={weeksBooked}
+                          onChange={e => setWeeksBooked(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                     <div>
+                      <label className="block text-xs font-semibold uppercase mb-1" style={{ color: COLORS.textSecondary }}>POP Value</label>
+                      <input 
+                        required 
+                        type="number" 
+                        step="0.5"
+                        className="w-full p-2 border rounded focus:ring-2 outline-none"
+                        style={{ backgroundColor: COLORS.background, color: COLORS.textPrimary, borderColor: COLORS.border }}
+                        value={pop}
+                        onChange={e => setPop(e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="pt-4 border-t flex justify-end gap-3" style={{ borderColor: COLORS.border }}>
+                    <button type="button" onClick={onClose} className="px-4 py-2 hover:bg-white/5 rounded-lg transition" style={{ color: COLORS.textSecondary }}>Cancel</button>
+                    <button 
+                      type="submit" 
+                      disabled={loading}
+                      className={`px-6 py-2 rounded-lg text-white font-semibold shadow-lg transition ${type === 'add' ? 'bg-[#10B981] hover:bg-[#059669]' : 'bg-[#ef4444] hover:bg-[#dc2626]'}`}
+                    >
+                      {loading ? 'Saving...' : type === 'add' ? 'Add Record' : 'Subtract Record'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          );
+        };
+
+        // --- MAIN APP ---
+
+        function App() {
+          const [user, setUser] = useState(null);
+          const [authError, setAuthError] = useState(null);
+          const [isAdmin, setIsAdmin] = useState(false);
+          const [showAdminLogin, setShowAdminLogin] = useState(false);
+          const [recruiters, setRecruiters] = useState([]);
+          const [transactions, setTransactions] = useState([]);
+          const [modalOpen, setModalOpen] = useState(false);
+          const [selectedRecruiter, setSelectedRecruiter] = useState(null);
+          
+          // Admin Editing State
+          const [newRecruiterName, setNewRecruiterName] = useState('');
+          const [newRecruiterGoal, setNewRecruiterGoal] = useState(4); 
+          const [newRecruiterYearGoal, setNewRecruiterYearGoal] = useState(50);
+          const [activeTab, setActiveTab] = useState('dashboard');
+          const [adminSubTab, setAdminSubTab] = useState('team'); 
+          
+          // Historical Placement Form State
+          const [histRecruiterId, setHistRecruiterId] = useState('');
+          const [histTraveler, setHistTraveler] = useState('');
+          const [histStartDate, setHistStartDate] = useState('');
+          const [histMargin, setHistMargin] = useState('');
+          const [histWeeks, setHistWeeks] = useState('13');
+          const [histPop, setHistPop] = useState(1);
+          const [histLoading, setHistLoading] = useState(false);
+
+          // POP History View State
+          const [historyView, setHistoryView] = useState('all');
+
+          // Margin Report State
+          const [marginReportPeriodId, setMarginReportPeriodId] = useState(1);
+          const [marginReportRecruiterId, setMarginReportRecruiterId] = useState('all');
+
+          // Inline Edit State for Transactions
+          const [editingTxId, setEditingTxId] = useState(null);
+          const [editTxData, setEditTxData] = useState({ startDate: '', marginDollars: '' });
+
+          const currentPeriod = useMemo(() => getCurrentPeriod(), []);
+
+          useEffect(() => {
+            // Default margin report to current period on load
+            setMarginReportPeriodId(currentPeriod.id);
+          }, [currentPeriod]);
+
+          useEffect(() => {
+            const initAuth = async () => {
+              try {
+                await signInAnonymously(auth);
+              } catch (error) {
+                console.error("Auth failed:", error);
+                setAuthError(error.message);
+              }
+            };
+            initAuth();
+            const unsubscribe = onAuthStateChanged(auth, (u) => {
+                setUser(u);
+                if (u) setAuthError(null);
+            });
+            return () => unsubscribe();
+          }, []);
+
+          useEffect(() => {
+            if (!user) return;
+
+            const qRecruiters = query(collection(db, 'artifacts', appId, 'public', 'data', 'recruiters'), orderBy('name'));
+            const unsubRecruiters = onSnapshot(qRecruiters, (snapshot) => {
+              setRecruiters(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+            });
+
+            const qTransactions = query(collection(db, 'artifacts', appId, 'public', 'data', 'transactions'), orderBy('timestamp', 'desc'));
+            const unsubTransactions = onSnapshot(qTransactions, (snapshot) => {
+              setTransactions(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+            });
+
+            return () => {
+              unsubRecruiters();
+              unsubTransactions();
+            };
+          }, [user]);
+
+          // --- MARGIN REPORT LOGIC ---
+          const marginReportData = useMemo(() => {
+            const period = PERIOD_CONFIG.find(p => p.id === Number(marginReportPeriodId));
+            if (!period) return { items: [], totalMargin: 0 };
+
+            const pStart = new Date(period.start);
+            const pEnd = new Date(period.end);
+            pStart.setHours(0,0,0,0);
+            pEnd.setHours(23,59,59,999);
+
+            const reportItems = [];
+            let totalPeriodMargin = 0;
+
+            // Gather all relevant transactions based on recruiter filter
+            const targetRecruiters = marginReportRecruiterId === 'all' 
+                ? recruiters 
+                : recruiters.filter(r => r.id === marginReportRecruiterId);
+
+            targetRecruiters.forEach(rec => {
+                const recTxs = transactions.filter(t => t.recruiterId === rec.id && t.type === 'add');
+                
+                // Consolidate per traveler if needed, but for simplicity showing placements
+                recTxs.forEach(tx => {
+                    const start = new Date(tx.startDate);
+                    start.setHours(0,0,0,0);
+                    
+                    const contractDays = (tx.weeksBooked || 13) * 7;
+                    const end = new Date(start);
+                    end.setDate(start.getDate() + contractDays);
+                    end.setHours(23,59,59,999);
+
+                    // Calculate intersection
+                    const overlapStart = start > pStart ? start : pStart;
+                    const overlapEnd = end < pEnd ? end : pEnd;
+
+                    if (overlapStart <= overlapEnd) {
+                        const diffTime = Math.abs(overlapEnd - overlapStart);
+                        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+                        // Using precise days / 7 for weeks worked in period
+                        const weeksInPeriod = parseFloat((diffDays / 7).toFixed(2));
+                        
+                        if (weeksInPeriod > 0) {
+                            const marginForPeriod = weeksInPeriod * (tx.marginDollars || 0);
+                            totalPeriodMargin += marginForPeriod;
+
+                            reportItems.push({
+                                recruiterName: rec.name,
+                                travelerName: tx.travelerName,
+                                startDate: tx.startDate,
+                                weeklyMargin: tx.marginDollars,
+                                weeksInPeriod: weeksInPeriod,
+                                totalForPeriod: marginForPeriod
+                            });
+                        }
+                    }
+                });
+            });
+
+            return { items: reportItems, totalMargin: totalPeriodMargin };
+          }, [transactions, marginReportPeriodId, marginReportRecruiterId, recruiters]);
+
+          const downloadReportCSV = () => {
+             const period = PERIOD_CONFIG.find(p => p.id === Number(marginReportPeriodId));
+             const headers = ["Recruiter", "Traveler", "Start Date", "Weekly Margin", "Weeks in Period", "Period Total Margin"];
+             const rows = marginReportData.items.map(item => [
+                 item.recruiterName,
+                 item.travelerName,
+                 item.startDate,
+                 `$${item.weeklyMargin}`,
+                 item.weeksInPeriod,
+                 `$${item.totalForPeriod.toFixed(2)}`
+             ]);
+             
+             // Add summary rows
+             rows.push([]);
+             rows.push(["TOTAL PERIOD MARGIN", "", "", "", "", `$${marginReportData.totalMargin.toFixed(2)}`]);
+             rows.push([]);
+             rows.push(["Commission Est.", "Amount"]);
+             [8, 10, 15, 16, 17, 18].forEach(pct => {
+                 rows.push([`${pct}%`, `$${(marginReportData.totalMargin * (pct/100)).toFixed(2)}`]);
+             });
+
+             const csvContent = "data:text/csv;charset=utf-8," 
+                 + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
+             
+             const encodedUri = encodeURI(csvContent);
+             const link = document.createElement("a");
+             link.setAttribute("href", encodedUri);
+             link.setAttribute("download", `MarginReport_${period.name.replace(' ','_')}.csv`);
+             document.body.appendChild(link);
+             link.click();
+             document.body.removeChild(link);
+          };
+
+          const stats = useMemo(() => {
+            const currentPeriodTransactions = transactions.filter(t => t.periodId === currentPeriod.id);
+            const currentYearTransactions = transactions;
+
+            const mappedStats = recruiters.map(rec => {
+              const periodPop = currentPeriodTransactions
+                .filter(t => t.recruiterId === rec.id)
+                .reduce((sum, t) => sum + (t.popValue || 0), 0);
+              
+              const yearPop = currentYearTransactions
+                .filter(t => t.recruiterId === rec.id)
+                .reduce((sum, t) => sum + (t.popValue || 0), 0);
+
+              const periodGoal = rec.periodGoal || 5; 
+              const yearGoal = rec.yearGoal || 50;
+              const percentage = Math.min(100, Math.max(0, (periodPop / periodGoal) * 100));
+              const percentageDisplay = Math.round((periodPop / periodGoal) * 100);
+
+              const recruiterTxs = transactions.filter(t => t.recruiterId === rec.id);
+              const travelerGroups = {};
+
+              recruiterTxs.forEach(tx => {
+                if (!travelerGroups[tx.travelerName]) {
+                  travelerGroups[tx.travelerName] = { 
+                    netWeeksBooked: 0, 
+                    startDate: tx.startDate,
+                    margin: 0,
+                    hasAdd: false
+                  };
+                }
+                if (tx.type === 'add') {
+                   travelerGroups[tx.travelerName].hasAdd = true;
+                   if (tx.startDate < travelerGroups[tx.travelerName].startDate) {
+                     travelerGroups[tx.travelerName].startDate = tx.startDate;
+                   }
+                   travelerGroups[tx.travelerName].margin = tx.marginDollars;
+                }
+                travelerGroups[tx.travelerName].netWeeksBooked += (tx.weeksBooked || 0);
+              });
+
+              let totalWeeksRemaining = 0;
+              let totalWeeklyMargin = 0;
+              
+              const today = new Date();
+              today.setHours(0,0,0,0);
+
+              Object.values(travelerGroups).forEach(group => {
+                 if (!group.hasAdd || group.netWeeksBooked <= 0) return;
+
+                 const [y, m, d] = group.startDate.split('-').map(Number);
+                 const start = new Date(y, m - 1, d); 
+                 
+                 let remaining = 0;
+                 let hasStarted = false;
+
+                 if (start > today) {
+                   remaining = group.netWeeksBooked;
+                   hasStarted = false;
+                 } else {
+                   hasStarted = true;
+                   const now = new Date();
+                   const diffTime = Math.abs(now - start);
+                   const diffWeeks = diffTime / (1000 * 60 * 60 * 24 * 7);
+                   remaining = Math.max(0, group.netWeeksBooked - diffWeeks);
+                 }
+
+                 if (remaining > 0.1) { 
+                   totalWeeksRemaining += remaining;
+                   if (hasStarted) {
+                     totalWeeklyMargin += group.margin;
+                   }
+                 }
+              });
+              
+              return {
+                ...rec,
+                periodPop,
+                yearPop,
+                periodGoal,
+                yearGoal,
+                periodPercentage: percentage,
+                percentageDisplay: percentageDisplay,
+                totalWeeksRemaining: Math.round(totalWeeksRemaining * 10) / 10,
+                totalWeeklyMargin: totalWeeklyMargin
+              };
+            });
+
+            // Sort by period percentage descending
+            return mappedStats.sort((a, b) => b.periodPercentage - a.periodPercentage);
+          }, [recruiters, transactions, currentPeriod]);
+          
+          const historyData = useMemo(() => {
+            const relevantTxs = historyView === 'all' 
+              ? transactions 
+              : transactions.filter(t => t.recruiterId === historyView);
+
+            return PERIOD_CONFIG.map(period => {
+              const popSum = relevantTxs
+                .filter(t => t.periodId === period.id) 
+                .reduce((sum, t) => sum + (t.popValue || 0), 0);
+
+              const periodStart = new Date(period.start);
+              const periodEnd = new Date(period.end);
+              
+              const activeIntervals = relevantTxs
+                .filter(t => t.type === 'add')
+                .map(t => {
+                  const start = new Date(t.startDate);
+                  const end = new Date(start);
+                  end.setDate(start.getDate() + (t.weeksBooked * 7));
+                  return { start, end };
+                });
+
+              let maxActive = 0;
+              for (let d = new Date(periodStart); d <= periodEnd; d.setDate(d.getDate() + 7)) {
+                const activeCount = activeIntervals.filter(interval => 
+                  interval.start <= d && interval.end >= d
+                ).length;
+                if (activeCount > maxActive) maxActive = activeCount;
+              }
+
+              return {
+                name: period.name.replace('Period ', 'P'), 
+                fullName: period.name,
+                pop: popSum,
+                workingCount: maxActive
+              };
+            });
+          }, [transactions, historyView]);
+
+          const selectedRecruiterTransactions = useMemo(() => {
+            if (!selectedRecruiter) return [];
+            return transactions.filter(t => t.recruiterId === selectedRecruiter.id && t.type === 'add');
+          }, [selectedRecruiter, transactions]);
+
+          const handleAddRecruiter = async (e) => {
+            e.preventDefault();
+            if (!newRecruiterName) return;
+            try {
+              await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'recruiters'), {
+                name: newRecruiterName,
+                periodGoal: Number(newRecruiterGoal),
+                yearGoal: Number(newRecruiterYearGoal),
+                createdAt: Timestamp.now()
+              });
+              setNewRecruiterName('');
+              setNewRecruiterGoal(4);
+              setNewRecruiterYearGoal(50);
+              alert('Recruiter Added');
+            } catch (err) {
+              console.error(err);
+            }
+          };
+
+          const handleUpdateRecruiterField = async (id, field, value) => {
+            try {
+              await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'recruiters', id), {
+                [field]: Number(value)
+              });
+            } catch(err) {
+              console.error("Update failed", err);
+            }
+          };
+
+          const handleDeleteRecruiter = async (id) => {
+            if (confirm('Are you sure? This will hide them from the dashboard.')) {
+              await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'recruiters', id));
+            }
+          };
+
+          const handleHistoricalSubmit = async (e) => {
+            e.preventDefault();
+            if (!histRecruiterId || !histTraveler || !histStartDate) return;
+            setHistLoading(true);
+
+            try {
+              const selectedRec = recruiters.find(r => r.id === histRecruiterId);
+              const assignedPeriod = getPeriodForDate(histStartDate);
+
+              await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'transactions'), {
+                recruiterId: selectedRec.id,
+                recruiterName: selectedRec.name,
+                travelerName: histTraveler,
+                startDate: histStartDate,
+                marginDollars: Number(histMargin),
+                weeksBooked: Number(histWeeks),
+                popValue: Number(histPop),
+                periodId: assignedPeriod.id, 
+                periodName: assignedPeriod.name,
+                timestamp: Timestamp.now(),
+                type: 'add',
+                isLegacy: true 
+              });
+
+              setHistTraveler('');
+              setHistStartDate('');
+              setHistMargin('');
+              setHistWeeks('13');
+              alert(`Placement Added! Assigned to: ${assignedPeriod.name}`);
+
+            } catch (err) {
+              console.error("Historical add failed", err);
+              alert("Failed to add placement");
+            } finally {
+              setHistLoading(false);
+            }
+          };
+
+          const startEditingTx = (tx) => {
+            setEditingTxId(tx.id);
+            setEditTxData({ startDate: tx.startDate, marginDollars: tx.marginDollars });
+          };
+
+          const saveEditingTx = async (id) => {
+            try {
+              await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'transactions', id), {
+                startDate: editTxData.startDate,
+                marginDollars: Number(editTxData.marginDollars)
+              });
+              setEditingTxId(null);
+            } catch (err) {
+              console.error("Tx Update failed", err);
+              alert("Failed to update transaction");
+            }
+          };
+
+          const openAddPop = (recruiter) => {
+            setSelectedRecruiter(recruiter);
+            setModalOpen(true);
+          };
+
+          if (authError) {
+            return (
+                <div className="flex items-center justify-center min-h-screen bg-red-900 text-white p-10">
+                    <div className="max-w-md text-center">
+                        <h1 className="text-3xl font-bold mb-4">Authentication Error</h1>
+                        <p className="mb-4">Could not sign in to Firebase.</p>
+                        <div className="bg-black/30 p-4 rounded text-left font-mono text-xs mb-6">
+                            {authError}
+                        </div>
+                        <p className="text-sm opacity-80">
+                            <strong>Tip:</strong> Go to your Firebase Console -&gt; Build -&gt; Authentication -&gt; Sign-in method.
+                            Ensure <strong>"Anonymous"</strong> is enabled.
+                        </p>
+                    </div>
+                </div>
+            )
+          }
+
+          if (showAdminLogin) {
+            return <AdminLogin onLogin={(success = true) => {
+              if (success) {
+                setIsAdmin(true);
+                setActiveTab('admin');
+                setShowAdminLogin(false);
+              } else {
+                setShowAdminLogin(false);
+              }
+            }} />;
+          }
+
+          return (
+            <div className="min-h-screen font-sans" style={{ backgroundColor: COLORS.background, color: COLORS.textPrimary }}>
+              <header className="shadow-md sticky top-0 z-40" style={{ backgroundColor: '#0f172a', borderBottom: `1px solid ${COLORS.border}` }}>
+                <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
+                  <div>
+                    <h1 className="text-2xl font-bold tracking-tight text-white">PRIME TIME <span className="font-light" style={{ color: COLORS.primaryBlue }}>CARDIO</span></h1>
+                    <div className="text-xs flex items-center gap-2 mt-1" style={{ color: COLORS.textSecondary }}>
+                      <Calendar className="w-3 h-3" />
+                      <span>{currentPeriod.name} ({currentPeriod.start} to {currentPeriod.end})</span>
+                    </div>
+                  </div>
+                  <div className="flex gap-3">
+                     {isAdmin ? (
+                       <>
+                        <button 
+                          onClick={() => setActiveTab('dashboard')} 
+                          className={`px-3 py-1.5 rounded text-sm flex items-center gap-2 transition ${activeTab === 'dashboard' ? 'bg-white/10 text-white font-bold' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                        >
+                          <LayoutDashboard className="w-4 h-4" /> Dashboard
+                        </button>
+                        <button 
+                          onClick={() => setActiveTab('admin')} 
+                          className={`px-3 py-1.5 rounded text-sm flex items-center gap-2 transition ${activeTab === 'admin' ? 'bg-white/10 text-white font-bold' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                        >
+                          <Users className="w-4 h-4" /> Admin
+                        </button>
+                        <button 
+                          onClick={() => { setIsAdmin(false); setActiveTab('dashboard'); }} 
+                          className="px-3 py-1.5 rounded text-sm bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white flex items-center gap-2 transition border border-red-500/20"
+                        >
+                          <LogOut className="w-4 h-4" /> Exit
+                        </button>
+                       </>
+                     ) : (
+                       <button 
+                         onClick={() => setShowAdminLogin(true)} 
+                         className="text-xs text-slate-400 hover:text-white underline decoration-dotted transition"
+                       >
+                         Admin Access
+                       </button>
+                     )}
+                  </div>
+                </div>
+              </header>
+
+              <main className="max-w-7xl mx-auto px-4 py-8">
+                {activeTab === 'dashboard' && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                    {stats.map((recruiter, index) => (
+                      <div 
+                        key={recruiter.id} 
+                        className="rounded-xl shadow-lg overflow-hidden hover:shadow-2xl transition duration-300 flex flex-col border"
+                        style={{ backgroundColor: COLORS.card, borderColor: COLORS.border }}
+                      >
+                        <div className="p-5 flex-1 flex flex-col justify-between">
+                          <div className="flex justify-between items-start mb-6">
+                            <div>
+                              <h3 className="text-lg font-bold text-white tracking-wide flex items-center gap-2">
+                                <span className="text-slate-500">#{index + 1}</span>
+                                {recruiter.name}
+                              </h3>
+                              <p className="text-xs uppercase tracking-wider font-semibold" style={{ color: COLORS.primaryBlue }}>Recruiter</p>
+                            </div>
+                            <button 
+                              onClick={() => openAddPop(recruiter)}
+                              className="p-2 rounded-full shadow-lg transition transform hover:scale-105 hover:brightness-110"
+                              style={{ backgroundColor: COLORS.brandBlue, color: 'white' }}
+                              title="Add/Subtract Production"
+                            >
+                              <Plus className="w-5 h-5" />
+                            </button>
+                          </div>
+
+                          <div className="mb-6">
+                            <div className="flex justify-between text-xs mb-1 font-semibold" style={{ color: COLORS.textSecondary }}>
+                              <span>Progress</span>
+                              <span className={recruiter.periodPop >= recruiter.periodGoal ? 'text-emerald-400' : 'text-sky-400'}>
+                                {recruiter.periodPop} / {recruiter.periodGoal} POP
+                              </span>
+                            </div>
+                            <div className="h-8 w-full rounded-full relative overflow-hidden shadow-inner" style={{ backgroundColor: COLORS.barBackground }}>
+                               <div 
+                                 className="h-full absolute left-0 top-0 transition-all duration-700 ease-out flex items-center justify-end pr-2"
+                                 style={{ 
+                                   width: `${recruiter.periodPercentage}%`,
+                                   backgroundColor: recruiter.periodPop >= recruiter.periodGoal ? COLORS.success : COLORS.primaryBlue,
+                                 }}
+                               />
+                               <div className="absolute inset-0 flex items-center justify-center font-bold text-sm text-white drop-shadow-md z-10">
+                                 {recruiter.percentageDisplay}% to Goal
+                               </div>
+                            </div>
+                          </div>
+
+                          <div className="flex justify-between items-center pt-4 border-t" style={{ borderColor: COLORS.border }}>
+                            <div className="text-left">
+                               <span className="text-xs block" style={{ color: COLORS.textSecondary }}>Current Status</span>
+                               <span className={`text-sm font-bold ${recruiter.periodPop >= recruiter.periodGoal ? 'text-emerald-400' : 'text-slate-300'}`}>
+                                 {recruiter.periodPop >= recruiter.periodGoal ? 'GOAL MET' : 'IN PROGRESS'}
+                               </span>
+                            </div>
+                            <div className="text-right">
+                              <span className="text-xs block" style={{ color: COLORS.textSecondary }}>YTD Total</span>
+                              <span className="text-xl font-bold" style={{ color: COLORS.primaryBlue }}>{recruiter.yearPop}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    
+                    {modalOpen && selectedRecruiter && (
+                      <AddPopModal 
+                        recruiter={selectedRecruiter} 
+                        recruiterTransactions={selectedRecruiterTransactions}
+                        currentPeriod={currentPeriod}
+                        onClose={() => { setModalOpen(false); setSelectedRecruiter(null); }} 
+                      />
+                    )}
+                  </div>
+                )}
+
+                {activeTab === 'admin' && isAdmin && (
+                  <div className="space-y-8">
+                    <div className="flex gap-4 border-b border-slate-700 pb-2 flex-wrap">
+                      <button 
+                        onClick={() => setAdminSubTab('team')}
+                        className={`text-sm font-semibold pb-2 px-1 transition ${adminSubTab === 'team' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-gray-400 hover:text-white'}`}
+                      >
+                        Manage Team
+                      </button>
+                      <button 
+                        onClick={() => setAdminSubTab('placement')}
+                        className={`text-sm font-semibold pb-2 px-1 transition ${adminSubTab === 'placement' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-gray-400 hover:text-white'}`}
+                      >
+                        Add Placement
+                      </button>
+                       <button 
+                        onClick={() => setAdminSubTab('logs')}
+                        className={`text-sm font-semibold pb-2 px-1 transition ${adminSubTab === 'logs' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-gray-400 hover:text-white'}`}
+                      >
+                        Transaction Log
+                      </button>
+                      <button 
+                        onClick={() => setAdminSubTab('history')}
+                        className={`text-sm font-semibold pb-2 px-1 transition ${adminSubTab === 'history' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-gray-400 hover:text-white'}`}
+                      >
+                        POP History
+                      </button>
+                      <button 
+                        onClick={() => setAdminSubTab('margin_report')}
+                        className={`text-sm font-semibold pb-2 px-1 transition ${adminSubTab === 'margin_report' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-gray-400 hover:text-white'}`}
+                      >
+                        Commission Report
+                      </button>
+                    </div>
+
+                    {adminSubTab === 'team' && (
+                      <div className="rounded-xl shadow-sm border p-6" style={{ backgroundColor: COLORS.card, borderColor: COLORS.border }}>
+                        <h2 className="text-xl font-bold mb-4 flex items-center gap-2" style={{ color: COLORS.textPrimary }}>
+                          <Users className="w-5 h-5" style={{ color: COLORS.primaryBlue }} /> Manage Team
+                        </h2>
+                        
+                        <div className="flex gap-4 items-end mb-6 p-4 rounded-lg border border-slate-700" style={{ backgroundColor: COLORS.inputBg }}>
+                          <div className="flex-1">
+                            <label className="block text-xs font-medium mb-1" style={{ color: COLORS.textSecondary }}>Recruiter Name</label>
+                            <input 
+                              type="text" 
+                              value={newRecruiterName}
+                              onChange={(e) => setNewRecruiterName(e.target.value)}
+                              className="w-full p-2 border rounded-md focus:ring-1 focus:ring-blue-500 outline-none text-sm"
+                              style={{ backgroundColor: COLORS.card, color: COLORS.textPrimary, borderColor: COLORS.border }}
+                              placeholder="Jane Smith"
+                            />
+                          </div>
+                          <div className="w-24">
+                            <label className="block text-xs font-medium mb-1" style={{ color: COLORS.textSecondary }}>Period Goal</label>
+                            <input 
+                              type="number" 
+                              value={newRecruiterGoal}
+                              onChange={(e) => setNewRecruiterGoal(e.target.value)}
+                              className="w-full p-2 border rounded-md focus:ring-1 focus:ring-blue-500 outline-none text-sm"
+                              style={{ backgroundColor: COLORS.card, color: COLORS.textPrimary, borderColor: COLORS.border }}
+                            />
+                          </div>
+                           <div className="w-24">
+                            <label className="block text-xs font-medium mb-1" style={{ color: COLORS.textSecondary }}>Year Goal</label>
+                            <input 
+                              type="number" 
+                              value={newRecruiterYearGoal}
+                              onChange={(e) => setNewRecruiterYearGoal(e.target.value)}
+                              className="w-full p-2 border rounded-md focus:ring-1 focus:ring-blue-500 outline-none text-sm"
+                              style={{ backgroundColor: COLORS.card, color: COLORS.textPrimary, borderColor: COLORS.border }}
+                            />
+                          </div>
+                          <button 
+                            onClick={handleAddRecruiter}
+                            className="text-white px-4 py-2 rounded-md font-semibold text-sm transition hover:brightness-110"
+                            style={{ backgroundColor: COLORS.primaryBlue }}
+                          >
+                            Add
+                          </button>
+                        </div>
+
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left border-collapse">
+                            <thead>
+                              <tr className="border-b text-xs uppercase" style={{ borderColor: COLORS.border, color: COLORS.textSecondary }}>
+                                <th className="py-3 px-2">Name</th>
+                                <th className="py-3 px-2 w-28">Period Goal</th>
+                                <th className="py-3 px-2 w-28">Year Goal</th>
+                                <th className="py-3 px-2 text-right">Active Weekly $</th>
+                                <th className="py-3 px-2 text-right">Weeks Remaining</th>
+                                <th className="py-3 px-2 text-right">Actions</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {stats.map(rec => (
+                                <tr key={rec.id} className="border-b transition hover:bg-white/5" style={{ borderColor: COLORS.border }}>
+                                  <td className="py-3 px-2 font-medium" style={{ color: COLORS.textPrimary }}>{rec.name}</td>
+                                  <td className="py-3 px-2">
+                                    <input 
+                                      type="number" 
+                                      className="w-full bg-transparent border-b border-slate-600 focus:border-blue-500 outline-none text-center"
+                                      defaultValue={rec.periodGoal}
+                                      onBlur={(e) => handleUpdateRecruiterField(rec.id, 'periodGoal', e.target.value)}
+                                      onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+                                    />
+                                  </td>
+                                  <td className="py-3 px-2">
+                                     <input 
+                                      type="number" 
+                                      className="w-full bg-transparent border-b border-slate-600 focus:border-blue-500 outline-none text-center"
+                                      defaultValue={rec.yearGoal}
+                                      onBlur={(e) => handleUpdateRecruiterField(rec.id, 'yearGoal', e.target.value)}
+                                      onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+                                    />
+                                  </td>
+                                  <td className="py-3 px-2 text-right text-emerald-400 font-mono">
+                                    ${rec.totalWeeklyMargin.toLocaleString()}
+                                  </td>
+                                   <td className="py-3 px-2 text-right text-sky-400 font-mono">
+                                    {rec.totalWeeksRemaining}
+                                  </td>
+                                  <td className="py-3 px-2 text-right">
+                                    <button 
+                                      onClick={() => handleDeleteRecruiter(rec.id)}
+                                      className="text-red-400 hover:text-red-300 text-xs transition"
+                                    >
+                                      Remove
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                    {adminSubTab === 'placement' && (
+                      <div className="rounded-xl shadow-sm border p-6 w-full max-w-3xl mx-auto" style={{ backgroundColor: COLORS.card, borderColor: COLORS.border }}>
+                        <h2 className="text-xl font-bold mb-6 flex items-center gap-2" style={{ color: COLORS.textPrimary }}>
+                          <Briefcase className="w-5 h-5" style={{ color: COLORS.primaryBlue }} /> Add Placement / Historical Data
+                        </h2>
+                        
+                        <form onSubmit={handleHistoricalSubmit} className="space-y-6">
+                          <div>
+                            <label className="block text-sm font-semibold mb-2" style={{ color: COLORS.textSecondary }}>Select Recruiter</label>
+                            <div className="relative">
+                               <select 
+                                 required
+                                 value={histRecruiterId}
+                                 onChange={(e) => setHistRecruiterId(e.target.value)}
+                                 className="w-full p-3 border rounded-lg appearance-none cursor-pointer focus:ring-2 focus:ring-blue-500 outline-none"
+                                 style={{ backgroundColor: COLORS.background, color: COLORS.textPrimary, borderColor: COLORS.border }}
+                               >
+                                 <option value="">-- Choose Recruiter --</option>
+                                 {recruiters.map(r => (
+                                   <option key={r.id} value={r.id}>{r.name}</option>
+                                 ))}
+                               </select>
+                               <ChevronDown className="absolute right-4 top-4 w-4 h-4 text-gray-400 pointer-events-none" />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                              <label className="block text-xs font-semibold uppercase mb-1" style={{ color: COLORS.textSecondary }}>Traveler Name</label>
+                              <input 
+                                required 
+                                type="text" 
+                                className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                style={{ backgroundColor: COLORS.background, color: COLORS.textPrimary, borderColor: COLORS.border }}
+                                placeholder="Traveler Name"
+                                value={histTraveler}
+                                onChange={e => setHistTraveler(e.target.value)}
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-semibold uppercase mb-1" style={{ color: COLORS.textSecondary }}>Start Date</label>
+                              <input 
+                                required 
+                                type="date" 
+                                className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none dark-date-input"
+                                style={{ backgroundColor: COLORS.background, color: COLORS.textPrimary, borderColor: COLORS.border }}
+                                value={histStartDate}
+                                onChange={e => setHistStartDate(e.target.value)}
+                              />
+                              <p className="text-xs text-slate-500 mt-1">If date is before current tracking period, POP won't count towards current goal.</p>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <div>
+                              <label className="block text-xs font-semibold uppercase mb-1" style={{ color: COLORS.textSecondary }}>Weekly Margin ($)</label>
+                              <div className="relative">
+                                <span className="absolute left-3 top-3" style={{ color: COLORS.textSecondary }}>$</span>
+                                <input 
+                                  required 
+                                  type="number" 
+                                  className="w-full pl-6 p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                  style={{ backgroundColor: COLORS.background, color: COLORS.textPrimary, borderColor: COLORS.border }}
+                                  placeholder="0.00"
+                                  value={histMargin}
+                                  onChange={e => setHistMargin(e.target.value)}
+                                />
+                              </div>
+                            </div>
+                            <div>
+                              <label className="block text-xs font-semibold uppercase mb-1" style={{ color: COLORS.textSecondary }}>Contract Weeks</label>
+                              <input 
+                                required 
+                                type="number" 
+                                className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                style={{ backgroundColor: COLORS.background, color: COLORS.textPrimary, borderColor: COLORS.border }}
+                                value={histWeeks}
+                                onChange={e => setHistWeeks(e.target.value)}
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-semibold uppercase mb-1" style={{ color: COLORS.textSecondary }}>POP Value</label>
+                              <input 
+                                required 
+                                type="number" 
+                                step="0.5"
+                                className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                style={{ backgroundColor: COLORS.background, color: COLORS.textPrimary, borderColor: COLORS.border }}
+                                value={histPop}
+                                onChange={e => setHistPop(e.target.value)}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="pt-4 flex justify-end">
+                            <button 
+                              type="submit" 
+                              disabled={histLoading}
+                              className="px-8 py-3 rounded-lg text-white font-bold shadow-lg transition bg-[#00AEEF] hover:bg-[#0095CC]"
+                            >
+                              {histLoading ? 'Saving...' : 'Add Placement'}
+                            </button>
+                          </div>
+                        </form>
+                      </div>
+                    )}
+
+                    {adminSubTab === 'logs' && (
+                      <div className="rounded-xl shadow-sm border p-6" style={{ backgroundColor: COLORS.card, borderColor: COLORS.border }}>
+                        <h2 className="text-xl font-bold mb-4 flex items-center gap-2" style={{ color: COLORS.textPrimary }}>
+                          <History className="w-5 h-5" style={{ color: COLORS.primaryBlue }} /> Global Transaction Log
+                        </h2>
+                        <div className="overflow-x-auto max-h-96 overflow-y-auto custom-scrollbar">
+                          <table className="w-full text-left border-collapse text-sm">
+                            <thead className="sticky top-0 z-10" style={{ backgroundColor: COLORS.card }}>
+                              <tr className="border-b text-xs uppercase" style={{ borderColor: COLORS.border, color: COLORS.textSecondary }}>
+                                <th className="py-3 px-4">Date Added</th>
+                                <th className="py-3 px-4">Recruiter</th>
+                                <th className="py-3 px-4">Traveler</th>
+                                <th className="py-3 px-4">Period</th>
+                                <th className="py-3 px-4 text-center">Weeks</th>
+                                <th className="py-3 px-4 text-right">Start Date</th>
+                                <th className="py-3 px-4 text-right">Margin</th>
+                                <th className="py-3 px-4 text-right">POP</th>
+                                <th className="py-3 px-4 text-center">Edit</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {transactions.map(t => (
+                                <tr key={t.id} className="border-b transition hover:bg-white/5" style={{ borderColor: COLORS.border }}>
+                                  <td className="py-3 px-4" style={{ color: COLORS.textSecondary }}>
+                                    {t.timestamp?.toDate().toLocaleDateString() || 'N/A'}
+                                  </td>
+                                  <td className="py-3 px-4 font-medium" style={{ color: COLORS.primaryBlue }}>{t.recruiterName}</td>
+                                  <td className="py-3 px-4" style={{ color: COLORS.textPrimary }}>{t.travelerName}</td>
+                                  <td className="py-3 px-4" style={{ color: COLORS.textSecondary }}>{t.periodName}</td>
+                                  <td className="py-3 px-4 text-center" style={{ color: COLORS.textPrimary }}>{t.weeksBooked || '-'}</td>
+                                  
+                                  {/* EDITABLE FIELDS */}
+                                  {editingTxId === t.id ? (
+                                    <>
+                                      <td className="py-3 px-4 text-right">
+                                        <input 
+                                          type="date" 
+                                          className="bg-[#0f172a] border border-slate-600 rounded px-2 py-1 text-xs text-white"
+                                          value={editTxData.startDate}
+                                          onChange={(e) => setEditTxData({...editTxData, startDate: e.target.value})}
+                                        />
+                                      </td>
+                                      <td className="py-3 px-4 text-right">
+                                        <input 
+                                          type="number" 
+                                          className="bg-[#0f172a] border border-slate-600 rounded px-2 py-1 text-xs text-white w-24"
+                                          value={editTxData.marginDollars}
+                                          onChange={(e) => setEditTxData({...editTxData, marginDollars: e.target.value})}
+                                        />
+                                      </td>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <td className="py-3 px-4 text-right font-mono" style={{ color: COLORS.textPrimary }}>{t.startDate}</td>
+                                      <td className="py-3 px-4 text-right font-mono" style={{ color: COLORS.success }}>
+                                        ${t.marginDollars?.toLocaleString()}
+                                      </td>
+                                    </>
+                                  )}
+
+                                  <td className={`py-3 px-4 text-right font-bold ${t.popValue > 0 ? 'text-[#10B981]' : 'text-[#ef4444]'}`}>
+                                    {t.popValue > 0 ? '+' : ''}{t.popValue}
+                                  </td>
+                                  
+                                  {/* ACTION BUTTONS */}
+                                  <td className="py-3 px-4 text-center">
+                                    {editingTxId === t.id ? (
+                                      <div className="flex justify-center gap-2">
+                                        <button onClick={() => saveEditingTx(t.id)} className="text-green-400 hover:text-green-300"><Save className="w-4 h-4" /></button>
+                                        <button onClick={() => setEditingTxId(null)} className="text-gray-400 hover:text-gray-300"><XIcon className="w-4 h-4" /></button>
+                                      </div>
+                                    ) : (
+                                      <button onClick={() => startEditingTx(t)} className="text-blue-400 hover:text-blue-300 opacity-50 hover:opacity-100">
+                                        <Pencil className="w-3 h-3" />
+                                      </button>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                              {transactions.length === 0 && (
+                                <tr>
+                                  <td colSpan={9} className="py-8 text-center" style={{ color: COLORS.textSecondary }}>No transactions recorded yet.</td>
+                                </tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {adminSubTab === 'history' && (
+                      <div className="rounded-xl shadow-sm border p-6" style={{ backgroundColor: COLORS.card, borderColor: COLORS.border }}>
+                        <div className="flex justify-between items-center mb-6">
+                          <h2 className="text-xl font-bold flex items-center gap-2" style={{ color: COLORS.textPrimary }}>
+                            <BarChart2 className="w-5 h-5" style={{ color: COLORS.primaryBlue }} /> Performance History
+                          </h2>
+                          <div className="relative w-64">
+                            <select 
+                              value={historyView} 
+                              onChange={(e) => setHistoryView(e.target.value)}
+                              className="w-full p-2 border rounded-lg appearance-none cursor-pointer focus:ring-2 focus:ring-blue-500 outline-none text-sm font-semibold"
+                              style={{ backgroundColor: COLORS.background, color: COLORS.textPrimary, borderColor: COLORS.border }}
+                            >
+                              <option value="all">Whole Team</option>
+                              {recruiters.map(r => (
+                                <option key={r.id} value={r.id}>{r.name}</option>
+                              ))}
+                            </select>
+                            <ChevronDown className="absolute right-3 top-3 w-4 h-4 text-gray-400 pointer-events-none" />
+                          </div>
+                        </div>
+
+                        <div className="h-80 w-full mb-8">
+                           <ResponsiveContainer width="100%" height="100%">
+                              <ComposedChart data={historyData} margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#2d3748" />
+                                <XAxis dataKey="name" tick={{fill: COLORS.textSecondary}} axisLine={{stroke: COLORS.border}} tickLine={false} />
+                                <YAxis yAxisId="left" orientation="left" stroke={COLORS.primaryBlue} tick={{fill: COLORS.textSecondary}} label={{ value: 'Total POP', angle: -90, position: 'insideLeft', fill: COLORS.primaryBlue }} />
+                                <YAxis yAxisId="right" orientation="right" stroke={COLORS.success} tick={{fill: COLORS.textSecondary}} label={{ value: 'Peak Working Count', angle: 90, position: 'insideRight', fill: COLORS.success }} />
+                                <RechartsTooltip 
+                                   contentStyle={{ backgroundColor: COLORS.background, borderColor: COLORS.border, color: COLORS.textPrimary }}
+                                   itemStyle={{ color: COLORS.textPrimary }}
+                                />
+                                <Legend />
+                                <Line yAxisId="left" type="monotone" dataKey="pop" name="Total POP" stroke={COLORS.primaryBlue} strokeWidth={3} dot={{r: 4}} activeDot={{r: 8}} />
+                                <Line yAxisId="right" type="monotone" dataKey="workingCount" name="Peak Working Count" stroke={COLORS.success} strokeWidth={3} dot={{r: 4}} />
+                              </ComposedChart>
+                           </ResponsiveContainer>
+                        </div>
+
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left border-collapse text-sm">
+                            <thead>
+                               <tr className="border-b text-xs uppercase" style={{ borderColor: COLORS.border, color: COLORS.textSecondary }}>
+                                 <th className="py-3 px-4">Period</th>
+                                 <th className="py-3 px-4 text-right text-blue-400">Total POP</th>
+                                 <th className="py-3 px-4 text-right text-green-400">Peak Working Count</th>
+                               </tr>
+                            </thead>
+                            <tbody>
+                              {historyData.map((row, idx) => (
+                                <tr key={idx} className="border-b transition hover:bg-white/5" style={{ borderColor: COLORS.border }}>
+                                  <td className="py-3 px-4 font-medium" style={{ color: COLORS.textPrimary }}>{row.fullName}</td>
+                                  <td className="py-3 px-4 text-right font-bold" style={{ color: COLORS.primaryBlue }}>{row.pop}</td>
+                                  <td className="py-3 px-4 text-right font-bold" style={{ color: COLORS.success }}>{row.workingCount}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+
+                      </div>
+                    )}
+
+                    {/* TAB: COMMISSION REPORT (NEW) */}
+                    {adminSubTab === 'margin_report' && (
+                        <div className="rounded-xl shadow-sm border p-6" style={{ backgroundColor: COLORS.card, borderColor: COLORS.border }}>
+                            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+                                <h2 className="text-xl font-bold flex items-center gap-2" style={{ color: COLORS.textPrimary }}>
+                                    <FileText className="w-5 h-5" style={{ color: COLORS.primaryBlue }} /> Commission & Margin Report
+                                </h2>
+                                <div className="flex gap-2">
+                                    <div className="relative w-48">
+                                        <select 
+                                            value={marginReportPeriodId} 
+                                            onChange={(e) => setMarginReportPeriodId(e.target.value)}
+                                            className="w-full p-2 border rounded-lg appearance-none cursor-pointer focus:ring-2 focus:ring-blue-500 outline-none text-sm font-semibold"
+                                            style={{ backgroundColor: COLORS.background, color: COLORS.textPrimary, borderColor: COLORS.border }}
+                                        >
+                                            {PERIOD_CONFIG.map(p => (
+                                                <option key={p.id} value={p.id}>{p.name}</option>
+                                            ))}
+                                        </select>
+                                        <ChevronDown className="absolute right-3 top-3 w-4 h-4 text-gray-400 pointer-events-none" />
+                                    </div>
+                                    <div className="relative w-48">
+                                        <select 
+                                            value={marginReportRecruiterId} 
+                                            onChange={(e) => setMarginReportRecruiterId(e.target.value)}
+                                            className="w-full p-2 border rounded-lg appearance-none cursor-pointer focus:ring-2 focus:ring-blue-500 outline-none text-sm font-semibold"
+                                            style={{ backgroundColor: COLORS.background, color: COLORS.textPrimary, borderColor: COLORS.border }}
+                                        >
+                                            <option value="all">All Recruiters</option>
+                                            {recruiters.map(r => (
+                                                <option key={r.id} value={r.id}>{r.name}</option>
+                                            ))}
+                                        </select>
+                                        <ChevronDown className="absolute right-3 top-3 w-4 h-4 text-gray-400 pointer-events-none" />
+                                    </div>
+                                    <button 
+                                        onClick={downloadReportCSV}
+                                        className="bg-green-600 hover:bg-green-700 text-white p-2 rounded-lg flex items-center gap-2 text-sm font-bold shadow-lg transition"
+                                        title="Download CSV"
+                                    >
+                                        <Download className="w-4 h-4" /> Export
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                                {/* REPORT TABLE */}
+                                <div className="lg:col-span-2 overflow-x-auto max-h-[600px] overflow-y-auto custom-scrollbar rounded-lg border" style={{ borderColor: COLORS.border }}>
+                                    <table className="w-full text-left border-collapse text-sm">
+                                        <thead className="sticky top-0 z-10" style={{ backgroundColor: COLORS.barBackground }}>
+                                            <tr className="border-b text-xs uppercase" style={{ borderColor: COLORS.border, color: COLORS.textSecondary }}>
+                                                <th className="py-3 px-4">Recruiter</th>
+                                                <th className="py-3 px-4">Traveler</th>
+                                                <th className="py-3 px-4 text-right">Wkly Margin</th>
+                                                <th className="py-3 px-4 text-center">Wks in Per.</th>
+                                                <th className="py-3 px-4 text-right">Period Total</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {marginReportData.items.map((row, idx) => (
+                                                <tr key={idx} className="border-b transition hover:bg-white/5" style={{ borderColor: COLORS.border }}>
+                                                    <td className="py-3 px-4 font-medium" style={{ color: COLORS.primaryBlue }}>{row.recruiterName}</td>
+                                                    <td className="py-3 px-4" style={{ color: COLORS.textPrimary }}>{row.travelerName} <span className="text-xs text-gray-500 block">{row.startDate}</span></td>
+                                                    <td className="py-3 px-4 text-right font-mono" style={{ color: COLORS.success }}>${row.weeklyMargin}</td>
+                                                    <td className="py-3 px-4 text-center text-gray-400">{row.weeksInPeriod}</td>
+                                                    <td className="py-3 px-4 text-right font-bold font-mono" style={{ color: COLORS.textPrimary }}>${row.totalForPeriod.toFixed(2)}</td>
+                                                </tr>
+                                            ))}
+                                            {marginReportData.items.length === 0 && (
+                                                <tr>
+                                                    <td colSpan={5} className="py-8 text-center text-gray-500">No active placements found for this period.</td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                {/* SUMMARY CARD */}
+                                <div className="bg-slate-800/50 p-6 rounded-xl border h-fit" style={{ borderColor: COLORS.border }}>
+                                    <h3 className="text-lg font-bold mb-4 text-white border-b pb-2 border-slate-700">Period Summary</h3>
+                                    <div className="mb-6">
+                                        <p className="text-sm text-slate-400">Total Margin Generated</p>
+                                        <p className="text-3xl font-bold text-emerald-400 font-mono">${marginReportData.totalMargin.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</p>
+                                    </div>
+                                    
+                                    <h4 className="text-sm font-semibold text-slate-300 mb-3 uppercase tracking-wider">Est. Commission</h4>
+                                    <div className="space-y-2">
+                                        {[8, 10, 15, 16, 17, 18].map(pct => (
+                                            <div key={pct} className="flex justify-between text-sm py-1 border-b border-slate-700/50 last:border-0">
+                                                <span className="text-slate-400">{pct}% Tier</span>
+                                                <span className="font-mono text-white font-medium">
+                                                    ${(marginReportData.totalMargin * (pct / 100)).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                                                </span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                  </div>
+                )}
+              </main>
+            </div>
+          );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
