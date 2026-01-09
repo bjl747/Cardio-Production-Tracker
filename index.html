@@ -521,6 +521,7 @@
 
           // POP History View State
           const [historyView, setHistoryView] = useState('all');
+          const [historyQuarter, setHistoryQuarter] = useState(1); // Default Q1
 
           // Margin Report State
           const [marginReportPeriodId, setMarginReportPeriodId] = useState(1);
@@ -796,6 +797,84 @@
               };
             });
           }, [transactions, historyView]);
+
+          const weeklyHistoryData = useMemo(() => {
+            const relevantTxs = historyView === 'all' 
+              ? transactions 
+              : transactions.filter(t => t.recruiterId === historyView);
+
+            // Define quarter periods
+            const qMap = {
+                1: [1, 2, 3],
+                2: [4, 5, 6],
+                3: [7, 8, 9],
+                4: [10, 11, 12]
+            };
+            const targetPeriodIds = qMap[historyQuarter];
+            const targetPeriods = PERIOD_CONFIG.filter(p => targetPeriodIds.includes(p.id));
+            
+            if(targetPeriods.length === 0) return [];
+
+            const weeklyData = [];
+
+            // Iterate through each period in the quarter
+            targetPeriods.forEach(period => {
+                const pStart = new Date(period.start);
+                const pEnd = new Date(period.end);
+                
+                let currentWeekStart = new Date(pStart);
+                
+                let weekNum = 1;
+
+                // While the start of the week is within the period
+                while (currentWeekStart <= pEnd) {
+                    const currentWeekEnd = new Date(currentWeekStart);
+                    currentWeekEnd.setDate(currentWeekEnd.getDate() + 6);
+                    currentWeekEnd.setHours(23, 59, 59, 999); // End of the day
+
+                    // Set start to beginning of day
+                    const weekStartObj = new Date(currentWeekStart);
+                    weekStartObj.setHours(0,0,0,0);
+
+                    // 1. Weekly POP
+                    const weeklyPop = relevantTxs
+                        .filter(t => {
+                            if (!t.timestamp) return false;
+                            const d = t.timestamp.toDate();
+                            return d >= weekStartObj && d <= currentWeekEnd;
+                        })
+                        .reduce((sum, t) => sum + (t.popValue || 0), 0);
+
+                    // 2. Weekly Working Count
+                    const activeCount = relevantTxs
+                        .filter(t => t.type === 'add')
+                        .filter(t => {
+                            const start = new Date(t.startDate);
+                            // Set to midnight
+                            start.setHours(0,0,0,0);
+                            
+                            const end = new Date(start);
+                            end.setDate(start.getDate() + (t.weeksBooked * 7));
+                            // End date is exclusive or inclusive? Usually contract ends on a day.
+                            // Logic used before: start <= weekEnd AND end >= weekStart
+                            return start <= currentWeekEnd && end >= weekStartObj;
+                        }).length;
+
+                    weeklyData.push({
+                        name: `P${period.id}W${weekNum}`, // The requested format: P1W3
+                        fullName: `${period.name} - Week ${weekNum}`,
+                        pop: weeklyPop,
+                        workingCount: activeCount
+                    });
+
+                    // Advance
+                    currentWeekStart.setDate(currentWeekStart.getDate() + 7);
+                    weekNum++;
+                }
+            });
+
+            return weeklyData;
+          }, [transactions, historyView, historyQuarter]);
 
           const selectedRecruiterTransactions = useMemo(() => {
             if (!selectedRecruiter) return [];
@@ -1390,38 +1469,81 @@
                           <h2 className="text-xl font-bold flex items-center gap-2" style={{ color: COLORS.textPrimary }}>
                             <BarChart2 className="w-5 h-5" style={{ color: COLORS.primaryBlue }} /> Performance History
                           </h2>
-                          <div className="relative w-64">
-                            <select 
-                              value={historyView} 
-                              onChange={(e) => setHistoryView(e.target.value)}
-                              className="w-full p-2 border rounded-lg appearance-none cursor-pointer focus:ring-2 focus:ring-blue-500 outline-none text-sm font-semibold"
-                              style={{ backgroundColor: COLORS.background, color: COLORS.textPrimary, borderColor: COLORS.border }}
-                            >
-                              <option value="all">Whole Team</option>
-                              {recruiters.map(r => (
-                                <option key={r.id} value={r.id}>{r.name}</option>
-                              ))}
-                            </select>
-                            <ChevronDown className="absolute right-3 top-3 w-4 h-4 text-gray-400 pointer-events-none" />
+                          <div className="flex gap-4">
+                            <div className="relative w-40">
+                                <select 
+                                  value={historyQuarter} 
+                                  onChange={(e) => setHistoryQuarter(Number(e.target.value))}
+                                  className="w-full p-2 border rounded-lg appearance-none cursor-pointer focus:ring-2 focus:ring-blue-500 outline-none text-sm font-semibold"
+                                  style={{ backgroundColor: COLORS.background, color: COLORS.textPrimary, borderColor: COLORS.border }}
+                                >
+                                  <option value={1}>Q1 (P1-3)</option>
+                                  <option value={2}>Q2 (P4-6)</option>
+                                  <option value={3}>Q3 (P7-9)</option>
+                                  <option value={4}>Q4 (P10-12)</option>
+                                </select>
+                                <ChevronDown className="absolute right-3 top-3 w-4 h-4 text-gray-400 pointer-events-none" />
+                            </div>
+                            <div className="relative w-64">
+                                <select 
+                                value={historyView} 
+                                onChange={(e) => setHistoryView(e.target.value)}
+                                className="w-full p-2 border rounded-lg appearance-none cursor-pointer focus:ring-2 focus:ring-blue-500 outline-none text-sm font-semibold"
+                                style={{ backgroundColor: COLORS.background, color: COLORS.textPrimary, borderColor: COLORS.border }}
+                                >
+                                <option value="all">Whole Team</option>
+                                {recruiters.map(r => (
+                                    <option key={r.id} value={r.id}>{r.name}</option>
+                                ))}
+                                </select>
+                                <ChevronDown className="absolute right-3 top-3 w-4 h-4 text-gray-400 pointer-events-none" />
+                            </div>
                           </div>
                         </div>
 
-                        <div className="h-80 w-full mb-8">
-                           <ResponsiveContainer width="100%" height="100%">
-                              <ComposedChart data={historyData} margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
-                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#2d3748" />
-                                <XAxis dataKey="name" tick={{fill: COLORS.textSecondary}} axisLine={{stroke: COLORS.border}} tickLine={false} />
-                                <YAxis yAxisId="left" orientation="left" stroke={COLORS.primaryBlue} tick={{fill: COLORS.textSecondary}} label={{ value: 'Total POP', angle: -90, position: 'insideLeft', fill: COLORS.primaryBlue }} />
-                                <YAxis yAxisId="right" orientation="right" stroke={COLORS.success} tick={{fill: COLORS.textSecondary}} label={{ value: 'Peak Working Count', angle: 90, position: 'insideRight', fill: COLORS.success }} />
-                                <RechartsTooltip 
-                                   contentStyle={{ backgroundColor: COLORS.background, borderColor: COLORS.border, color: COLORS.textPrimary }}
-                                   itemStyle={{ color: COLORS.textPrimary }}
-                                />
-                                <Legend />
-                                <Line yAxisId="left" type="monotone" dataKey="pop" name="Total POP" stroke={COLORS.primaryBlue} strokeWidth={3} dot={{r: 4}} activeDot={{r: 8}} />
-                                <Line yAxisId="right" type="monotone" dataKey="workingCount" name="Peak Working Count" stroke={COLORS.success} strokeWidth={3} dot={{r: 4}} />
-                              </ComposedChart>
-                           </ResponsiveContainer>
+                        {/* WEEKLY CHART (NEW) */}
+                        <div className="mb-10">
+                            <h3 className="text-sm font-bold text-slate-400 mb-4 uppercase tracking-wider border-b border-slate-700 pb-2">Weekly Outlook (Quarter {historyQuarter})</h3>
+                            <div className="h-64 w-full">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <ComposedChart data={weeklyHistoryData} margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#2d3748" />
+                                        <XAxis dataKey="name" tick={{fill: COLORS.textSecondary}} axisLine={{stroke: COLORS.border}} tickLine={false} />
+                                        <YAxis yAxisId="left" orientation="left" stroke={COLORS.primaryBlue} tick={{fill: COLORS.textSecondary}} />
+                                        <YAxis yAxisId="right" orientation="right" stroke={COLORS.success} tick={{fill: COLORS.textSecondary}} />
+                                        <RechartsTooltip 
+                                            contentStyle={{ backgroundColor: COLORS.background, borderColor: COLORS.border, color: COLORS.textPrimary }}
+                                            itemStyle={{ color: COLORS.textPrimary }}
+                                            labelFormatter={(l) => `Week ${l.replace('W','')}`}
+                                        />
+                                        <Legend />
+                                        <Line yAxisId="left" type="monotone" dataKey="pop" name="Weekly POP" stroke={COLORS.primaryBlue} strokeWidth={3} dot={{r: 4}} />
+                                        <Line yAxisId="right" type="monotone" dataKey="workingCount" name="Census Count" stroke={COLORS.success} strokeWidth={3} dot={{r: 4}} />
+                                    </ComposedChart>
+                                </ResponsiveContainer>
+                            </div>
+                        </div>
+
+                        {/* PERIOD CHART (EXISTING) */}
+                        <div className="mb-8">
+                           <h3 className="text-sm font-bold text-slate-400 mb-4 uppercase tracking-wider border-b border-slate-700 pb-2">Period Outlook (Yearly)</h3>
+                           <div className="h-64 w-full">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <ComposedChart data={historyData} margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#2d3748" />
+                                        <XAxis dataKey="name" tick={{fill: COLORS.textSecondary}} axisLine={{stroke: COLORS.border}} tickLine={false} />
+                                        <YAxis yAxisId="left" orientation="left" stroke={COLORS.primaryBlue} tick={{fill: COLORS.textSecondary}} />
+                                        <YAxis yAxisId="right" orientation="right" stroke={COLORS.success} tick={{fill: COLORS.textSecondary}} />
+                                        <RechartsTooltip 
+                                            contentStyle={{ backgroundColor: COLORS.background, borderColor: COLORS.border, color: COLORS.textPrimary }}
+                                            itemStyle={{ color: COLORS.textPrimary }}
+                                        />
+                                        <Legend />
+                                        <Line yAxisId="left" type="monotone" dataKey="pop" name="Total POP" stroke={COLORS.primaryBlue} strokeWidth={3} dot={{r: 4}} />
+                                        <Line yAxisId="right" type="monotone" dataKey="workingCount" name="Peak Count" stroke={COLORS.success} strokeWidth={3} dot={{r: 4}} />
+                                    </ComposedChart>
+                                </ResponsiveContainer>
+                           </div>
                         </div>
 
                         <div className="overflow-x-auto">
