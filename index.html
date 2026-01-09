@@ -231,7 +231,11 @@
           const [loading, setLoading] = useState(false);
           const [type, setType] = useState('add');
           const [subType, setSubType] = useState('placement'); // 'placement' or 'extension'
+          const [removalReason, setRemovalReason] = useState('early'); // 'early' or 'cancel'
           const [selectedTxId, setSelectedTxId] = useState('');
+          const [newEndDate, setNewEndDate] = useState('');
+          const [popToRemove, setPopToRemove] = useState(1);
+          const [daysWorked, setDaysWorked] = useState(null);
 
           useEffect(() => {
             if (type === 'add') {
@@ -241,7 +245,13 @@
               setWeeksBooked('13');
               setPop(1);
               setSelectedTxId('');
-              setSubType('placement'); // Default back to placement on new add
+              setSubType('placement'); 
+            } else {
+              // Reset subtract specific fields
+              setRemovalReason('early');
+              setNewEndDate('');
+              setPopToRemove(1);
+              setDaysWorked(null);
             }
           }, [type]);
 
@@ -253,23 +263,30 @@
                 setTraveler(tx.travelerName);
                 setStartDate(tx.startDate);
                 setMargin(tx.marginDollars);
-                setPop(Math.abs(tx.popValue));
-                
-                const start = new Date(tx.startDate);
-                const today = new Date();
-                const totalWeeks = Number(tx.weeksBooked) || 13;
-
-                if (start > today) {
-                   setWeeksBooked(totalWeeks);
-                } else {
-                   const diffTime = Math.abs(today - start);
-                   const diffWeeks = diffTime / (1000 * 60 * 60 * 24 * 7);
-                   const remaining = Math.max(0, Math.round(totalWeeks - diffWeeks));
-                   setWeeksBooked(remaining);
-                }
+                setPop(tx.popValue); // Current total POP
               }
             }
           }, [selectedTxId, type, recruiterTransactions]);
+
+          // Handle New End Date Change (Auto-Calculation)
+          useEffect(() => {
+            if (type === 'subtract' && removalReason === 'early' && startDate && newEndDate) {
+                const start = new Date(startDate);
+                const end = new Date(newEndDate);
+                const diffTime = end - start;
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1; // Inclusive
+                
+                setDaysWorked(diffDays);
+
+                if (diffDays >= 23) {
+                    setPopToRemove(0);
+                } else {
+                    setPopToRemove(pop); // Remove all POP
+                }
+            } else {
+                setDaysWorked(null);
+            }
+          }, [newEndDate, startDate, type, removalReason, pop]);
 
           // Get unique travelers for Extension dropdown
           const uniqueTravelers = useMemo(() => {
@@ -279,12 +296,55 @@
 
           const handleSubmit = async (e) => {
             e.preventDefault();
+            
+            if (type === 'subtract') {
+                if (!selectedTxId) return;
+                setLoading(true);
+                try {
+                    if (removalReason === 'cancel') {
+                        // Delete the record
+                        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'transactions', selectedTxId));
+                        alert('Record deleted successfully.');
+                    } else {
+                        // Ended Early: Update record
+                        if (!newEndDate) {
+                            alert("Please enter a new end date.");
+                            setLoading(false);
+                            return;
+                        }
+                        
+                        const start = new Date(startDate);
+                        const end = new Date(newEndDate);
+                        const diffTime = Math.abs(end - start);
+                        const newWeeks = Math.max(0, Math.round(diffTime / (1000 * 60 * 60 * 24 * 7))); 
+                        
+                        // Calculate new total POP
+                        const newTotalPop = Math.max(0, Number(pop) - Number(popToRemove));
+
+                        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'transactions', selectedTxId), {
+                            weeksBooked: newWeeks,
+                            popValue: newTotalPop,
+                            lastModified: Timestamp.now()
+                        });
+                        alert('Placement updated successfully.');
+                    }
+                    onClose();
+                } catch (err) {
+                    console.error("Error updating/deleting:", err);
+                    alert("Failed to update data.");
+                } finally {
+                    setLoading(false);
+                }
+                return;
+            }
+
+            // ADD LOGIC
             if (!traveler || !startDate || !margin) return;
             setLoading(true);
 
             try {
-              const finalPop = type === 'add' ? Number(pop) : -Number(pop);
-              const finalWeeks = type === 'add' ? Number(weeksBooked) : -Number(weeksBooked);
+              const finalPop = Number(pop);
+              const finalWeeks = Number(weeksBooked);
 
               await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'transactions'), {
                 recruiterId: recruiter.id,
@@ -298,8 +358,8 @@
                 periodName: currentPeriod.name,
                 timestamp: Timestamp.now(),
                 type: type,
-                isExtension: subType === 'extension' && type === 'add',
-                originalTransactionId: selectedTxId || null
+                isExtension: subType === 'extension',
+                originalTransactionId: null
               });
               onClose();
             } catch (err) {
@@ -339,142 +399,215 @@
                     </button>
                   </div>
 
-                  {/* New Placement vs Extension Toggle (Only for Add) */}
-                  {type === 'add' && (
-                      <div className="flex gap-4 text-sm mb-2">
-                          <label className="flex items-center gap-2 cursor-pointer">
-                              <input 
-                                  type="radio" 
-                                  name="subType" 
-                                  checked={subType === 'placement'} 
-                                  onChange={() => setSubType('placement')}
-                                  className="accent-blue-500"
-                              />
-                              <span style={{ color: subType === 'placement' ? COLORS.primaryBlue : COLORS.textSecondary }}>New Placement</span>
-                          </label>
-                          <label className="flex items-center gap-2 cursor-pointer">
-                              <input 
-                                  type="radio" 
-                                  name="subType" 
-                                  checked={subType === 'extension'} 
-                                  onChange={() => setSubType('extension')}
-                                  className="accent-blue-500"
-                              />
-                              <span style={{ color: subType === 'extension' ? COLORS.primaryBlue : COLORS.textSecondary }}>Extension</span>
-                          </label>
+                  {/* --- SUBTRACT MODE UI --- */}
+                  {type === 'subtract' && (
+                      <div className="space-y-4">
+                          {/* 1. Select Placement */}
+                          <div>
+                             <label className="block text-xs font-semibold uppercase mb-1" style={{ color: COLORS.textSecondary }}>Select Active Placement</label>
+                             <select
+                               required
+                               className="w-full p-2 border rounded focus:ring-2 outline-none"
+                               style={{ backgroundColor: COLORS.background, color: COLORS.textPrimary, borderColor: COLORS.border }}
+                               value={selectedTxId}
+                               onChange={e => setSelectedTxId(e.target.value)}
+                             >
+                                <option value="">Select a placement...</option>
+                                {recruiterTransactions.map(tx => (
+                                  <option key={tx.id} value={tx.id}>
+                                    {tx.travelerName} ({tx.startDate}) - {tx.weeksBooked}wks
+                                  </option>
+                                ))}
+                             </select>
+                          </div>
+
+                          {selectedTxId && (
+                              <>
+                                {/* 2. Reason Toggle */}
+                                <div className="flex gap-4 text-sm mb-2">
+                                    <label className="flex items-center gap-2 cursor-pointer">
+                                        <input 
+                                            type="radio" 
+                                            name="removalReason" 
+                                            checked={removalReason === 'early'} 
+                                            onChange={() => setRemovalReason('early')}
+                                            className="accent-red-500"
+                                        />
+                                        <span style={{ color: removalReason === 'early' ? COLORS.danger : COLORS.textSecondary }}>Ended Early</span>
+                                    </label>
+                                    <label className="flex items-center gap-2 cursor-pointer">
+                                        <input 
+                                            type="radio" 
+                                            name="removalReason" 
+                                            checked={removalReason === 'cancel'} 
+                                            onChange={() => setRemovalReason('cancel')}
+                                            className="accent-red-500"
+                                        />
+                                        <span style={{ color: removalReason === 'cancel' ? COLORS.danger : COLORS.textSecondary }}>Canceled/Backout</span>
+                                    </label>
+                                </div>
+
+                                {/* 3. Conditional Fields */}
+                                {removalReason === 'cancel' ? (
+                                    <div className="p-3 bg-red-900/20 border border-red-900/50 rounded-lg text-red-200 text-sm">
+                                        <p className="font-bold flex items-center gap-2"><Icon path={<path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>} className="w-4 h-4"/> Warning:</p>
+                                        This will permanently delete the record for <strong>{traveler}</strong>. All POP and margin stats associated with this placement will be removed.
+                                    </div>
+                                ) : (
+                                    <div className="grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2">
+                                        <div>
+                                            <label className="block text-xs font-semibold uppercase mb-1" style={{ color: COLORS.textSecondary }}>New End Date</label>
+                                            <input 
+                                              required 
+                                              type="date" 
+                                              className="w-full p-2 border rounded focus:ring-2 outline-none dark-date-input"
+                                              style={{ backgroundColor: COLORS.background, color: COLORS.textPrimary, borderColor: COLORS.border }}
+                                              value={newEndDate}
+                                              onChange={e => setNewEndDate(e.target.value)}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-semibold uppercase mb-1" style={{ color: COLORS.textSecondary }}>POP to Remove</label>
+                                            <input 
+                                              required 
+                                              type="number" 
+                                              step="0.5"
+                                              className="w-full p-2 border rounded focus:ring-2 outline-none opacity-50 cursor-not-allowed"
+                                              style={{ backgroundColor: COLORS.background, color: COLORS.textPrimary, borderColor: COLORS.border }}
+                                              value={popToRemove}
+                                              readOnly
+                                            />
+                                            {daysWorked !== null && (
+                                                <div className={`text-[10px] mt-2 font-bold ${daysWorked >= 23 ? 'text-green-400' : 'text-red-400'}`}>
+                                                    {daysWorked} Days Worked.
+                                                    <br/>
+                                                    {daysWorked >= 23 ? '23+ Days: Point Retained (0 removed)' : '< 23 Days: Point Lost (Full remove)'}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+                              </>
+                          )}
                       </div>
                   )}
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="col-span-2">
-                      <label className="block text-xs font-semibold uppercase mb-1" style={{ color: COLORS.textSecondary }}>Traveler Name</label>
-                      
-                      {/* Logic for Traveler Input Display */}
-                      {type === 'subtract' ? (
-                         <select
-                           required
-                           className="w-full p-2 border rounded focus:ring-2 outline-none"
-                           style={{ backgroundColor: COLORS.background, color: COLORS.textPrimary, borderColor: COLORS.border }}
-                           value={selectedTxId}
-                           onChange={e => setSelectedTxId(e.target.value)}
-                         >
-                            <option value="">Select a placement to remove...</option>
-                            {recruiterTransactions.map(tx => (
-                              <option key={tx.id} value={tx.id}>
-                                {tx.travelerName} ({tx.startDate}) - {tx.weeksBooked}wks
-                              </option>
-                            ))}
-                         </select>
-                      ) : (
-                        subType === 'extension' ? (
-                            <select
-                                required
+                  {/* --- ADD MODE UI --- */}
+                  {type === 'add' && (
+                      <div className="space-y-4">
+                          <div className="flex gap-4 text-sm mb-2">
+                              <label className="flex items-center gap-2 cursor-pointer">
+                                  <input 
+                                      type="radio" 
+                                      name="subType" 
+                                      checked={subType === 'placement'} 
+                                      onChange={() => setSubType('placement')}
+                                      className="accent-blue-500"
+                                  />
+                                  <span style={{ color: subType === 'placement' ? COLORS.primaryBlue : COLORS.textSecondary }}>New Placement</span>
+                              </label>
+                              <label className="flex items-center gap-2 cursor-pointer">
+                                  <input 
+                                      type="radio" 
+                                      name="subType" 
+                                      checked={subType === 'extension'} 
+                                      onChange={() => setSubType('extension')}
+                                      className="accent-blue-500"
+                                  />
+                                  <span style={{ color: subType === 'extension' ? COLORS.primaryBlue : COLORS.textSecondary }}>Extension</span>
+                              </label>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="col-span-2">
+                              <label className="block text-xs font-semibold uppercase mb-1" style={{ color: COLORS.textSecondary }}>Traveler Name</label>
+                              {subType === 'extension' ? (
+                                    <select
+                                        required
+                                        className="w-full p-2 border rounded focus:ring-2 outline-none"
+                                        style={{ backgroundColor: COLORS.background, color: COLORS.textPrimary, borderColor: COLORS.border }}
+                                        value={traveler}
+                                        onChange={e => setTraveler(e.target.value)}
+                                    >
+                                        <option value="">Select existing traveler...</option>
+                                        {uniqueTravelers.map(name => (
+                                            <option key={name} value={name}>{name}</option>
+                                        ))}
+                                    </select>
+                                ) : (
+                                    <input 
+                                      required 
+                                      type="text" 
+                                      className="w-full p-2 border rounded focus:ring-2 outline-none"
+                                      style={{ backgroundColor: COLORS.background, color: COLORS.textPrimary, borderColor: COLORS.border, '--tw-ring-color': COLORS.primaryBlue }}
+                                      placeholder="John Doe"
+                                      value={traveler}
+                                      onChange={e => setTraveler(e.target.value)}
+                                    />
+                                )
+                              }
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-4">
+                             <div>
+                              <label className="block text-xs font-semibold uppercase mb-1" style={{ color: COLORS.textSecondary }}>Start Date</label>
+                              <input 
+                                required 
+                                type="date" 
+                                className="w-full p-2 border rounded focus:ring-2 outline-none dark-date-input"
+                                style={{ backgroundColor: COLORS.background, color: COLORS.textPrimary, borderColor: COLORS.border }}
+                                value={startDate}
+                                onChange={e => setStartDate(e.target.value)}
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-semibold uppercase mb-1" style={{ color: COLORS.textSecondary }}>Weekly Margin ($)</label>
+                              <div className="relative">
+                                <span className="absolute left-3 top-2" style={{ color: COLORS.textSecondary }}>$</span>
+                                <input 
+                                  required 
+                                  type="number" 
+                                  className="w-full pl-6 p-2 border rounded focus:ring-2 outline-none"
+                                  style={{ backgroundColor: COLORS.background, color: COLORS.textPrimary, borderColor: COLORS.border }}
+                                  placeholder="0.00"
+                                  value={margin}
+                                  onChange={e => setMargin(e.target.value)}
+                                />
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-4">
+                             <div>
+                              <label className="block text-xs font-semibold uppercase mb-1" style={{ color: COLORS.textSecondary }}>Contract Weeks</label>
+                              <div className="relative">
+                                <Clock className="absolute left-3 top-2.5 w-4 h-4" style={{ color: COLORS.textSecondary }} />
+                                <input 
+                                  required 
+                                  type="number" 
+                                  className="w-full pl-9 p-2 border rounded focus:ring-2 outline-none"
+                                  style={{ backgroundColor: COLORS.background, color: COLORS.textPrimary, borderColor: COLORS.border }}
+                                  value={weeksBooked}
+                                  onChange={e => setWeeksBooked(e.target.value)}
+                                />
+                              </div>
+                            </div>
+                             <div>
+                              <label className="block text-xs font-semibold uppercase mb-1" style={{ color: COLORS.textSecondary }}>POP Value</label>
+                              <input 
+                                required 
+                                type="number" 
+                                step="0.5"
                                 className="w-full p-2 border rounded focus:ring-2 outline-none"
                                 style={{ backgroundColor: COLORS.background, color: COLORS.textPrimary, borderColor: COLORS.border }}
-                                value={traveler}
-                                onChange={e => setTraveler(e.target.value)}
-                            >
-                                <option value="">Select existing traveler...</option>
-                                {uniqueTravelers.map(name => (
-                                    <option key={name} value={name}>{name}</option>
-                                ))}
-                            </select>
-                        ) : (
-                            <input 
-                              required 
-                              type="text" 
-                              className="w-full p-2 border rounded focus:ring-2 outline-none"
-                              style={{ backgroundColor: COLORS.background, color: COLORS.textPrimary, borderColor: COLORS.border, '--tw-ring-color': COLORS.primaryBlue }}
-                              placeholder="John Doe"
-                              value={traveler}
-                              onChange={e => setTraveler(e.target.value)}
-                            />
-                        )
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                     <div>
-                      <label className="block text-xs font-semibold uppercase mb-1" style={{ color: COLORS.textSecondary }}>Start Date</label>
-                      <input 
-                        required 
-                        type="date" 
-                        className="w-full p-2 border rounded focus:ring-2 outline-none dark-date-input"
-                        style={{ backgroundColor: COLORS.background, color: COLORS.textPrimary, borderColor: COLORS.border }}
-                        value={startDate}
-                        onChange={e => setStartDate(e.target.value)}
-                        readOnly={type === 'subtract'} 
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold uppercase mb-1" style={{ color: COLORS.textSecondary }}>Weekly Margin ($)</label>
-                      <div className="relative">
-                        <span className="absolute left-3 top-2" style={{ color: COLORS.textSecondary }}>$</span>
-                        <input 
-                          required 
-                          type="number" 
-                          className="w-full pl-6 p-2 border rounded focus:ring-2 outline-none"
-                          style={{ backgroundColor: COLORS.background, color: COLORS.textPrimary, borderColor: COLORS.border }}
-                          placeholder="0.00"
-                          value={margin}
-                          onChange={e => setMargin(e.target.value)}
-                          readOnly={type === 'subtract'} 
-                        />
+                                value={pop}
+                                onChange={e => setPop(e.target.value)}
+                              />
+                            </div>
+                          </div>
                       </div>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                     <div>
-                      <label className="block text-xs font-semibold uppercase mb-1" style={{ color: COLORS.textSecondary }}>
-                         {type === 'subtract' ? 'Remaining Weeks' : 'Contract Weeks'}
-                      </label>
-                      <div className="relative">
-                        <Clock className="absolute left-3 top-2.5 w-4 h-4" style={{ color: COLORS.textSecondary }} />
-                        <input 
-                          required 
-                          type="number" 
-                          className="w-full pl-9 p-2 border rounded focus:ring-2 outline-none"
-                          style={{ backgroundColor: COLORS.background, color: COLORS.textPrimary, borderColor: COLORS.border }}
-                          value={weeksBooked}
-                          onChange={e => setWeeksBooked(e.target.value)}
-                        />
-                      </div>
-                    </div>
-                     <div>
-                      <label className="block text-xs font-semibold uppercase mb-1" style={{ color: COLORS.textSecondary }}>POP Value</label>
-                      <input 
-                        required 
-                        type="number" 
-                        step="0.5"
-                        className="w-full p-2 border rounded focus:ring-2 outline-none"
-                        style={{ backgroundColor: COLORS.background, color: COLORS.textPrimary, borderColor: COLORS.border }}
-                        value={pop}
-                        onChange={e => setPop(e.target.value)}
-                      />
-                    </div>
-                  </div>
+                  )}
 
                   <div className="pt-4 border-t flex justify-end gap-3" style={{ borderColor: COLORS.border }}>
                     <button type="button" onClick={onClose} className="px-4 py-2 hover:bg-white/5 rounded-lg transition" style={{ color: COLORS.textSecondary }}>Cancel</button>
@@ -483,7 +616,7 @@
                       disabled={loading}
                       className={`px-6 py-2 rounded-lg text-white font-semibold shadow-lg transition ${type === 'add' ? 'bg-[#10B981] hover:bg-[#059669]' : 'bg-[#ef4444] hover:bg-[#dc2626]'}`}
                     >
-                      {loading ? 'Saving...' : type === 'add' ? 'Add Record' : 'Subtract Record'}
+                      {loading ? 'Saving...' : type === 'subtract' && removalReason === 'cancel' ? 'Confirm Delete' : 'Update Placement'}
                     </button>
                   </div>
                 </form>
